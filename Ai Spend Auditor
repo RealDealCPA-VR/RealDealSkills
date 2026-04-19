@@ -1,0 +1,185 @@
+---
+name: ai-spend-auditor
+description: Use this skill whenever the user wants to audit, reconcile, or expose the real economics of their AI usage, comparing what they pay across providers (Claude, OpenAI, Gemini, Grok, Perplexity, Cursor, Copilot, fine-tuning jobs, hosted inference, vector DBs, agent platforms) against the underlying compute cost of serving those workloads. Trigger on any request involving AI spend transparency, "true cost of AI," subsidy vs markup analysis, per-token or per-request cost reconciliation, YTD / monthly / weekly AI spend breakdowns, cost-to-self-host comparisons, or questions like "am I overpaying," "am I being subsidized," "what's the real compute cost of this workload," or "should I move this to local." Trigger even when the user only mentions AI invoices, usage exports, GPU cost estimation, margin on AI pass-through to clients, or unit economics of an AI feature, even if they do not explicitly ask for an "audit."
+---
+
+# AI Spend Auditor
+
+A skill that produces an honest accounting of AI spend: what the user pays, what the compute actually costs to serve, and the delta (subsidy if negative, markup if positive). Output is structured, numeric, and decision-grade.
+
+## Core premise
+
+Every AI bill mixes three things: raw compute, provider margin, and strategic subsidy. Users see only the invoice. This skill separates them so the user can answer:
+
+1. How much am I spending on AI (YTD, monthly, weekly, by vendor, by workload)?
+2. What would the same workload cost if I paid true compute rates (self-hosted on commodity GPU, or at wholesale inference rates)?
+3. Am I being subsidized (paying below cost), at-cost, or marked up? By how much?
+4. Which workloads should move on-prem, stay cloud, or be renegotiated?
+
+## When to run this skill
+
+Trigger phrases and contexts include:
+- "How much am I spending on AI this year / month / week"
+- "What's the real cost of [model / workload]"
+- "Am I getting subsidized on [provider]"
+- "Should I move this to local / self-host this"
+- "Break down my AI bill"
+- "Compare my Claude / OpenAI / Gemini spend"
+- "What's the margin on my AI feature"
+- "Client pass-through pricing for AI work"
+- User uploads an invoice, usage CSV, billing export, or dashboard screenshot from any AI provider
+- User mentions token counts, GPU-hours, inference endpoints, or cost-per-request
+
+Do not require the user to phrase it as an "audit." Any spend-transparency framing should activate this skill.
+
+## Inputs required
+
+Ask the user for whatever is missing, in priority order:
+
+1. **Spend data** (one or more of):
+   - Provider invoices (PDF, CSV)
+   - Usage exports (token counts, request counts, GPU-hours)
+   - Dashboard screenshots
+   - Stated monthly spend by vendor
+2. **Time window**: YTD, trailing 12 months, MTD, WTD, or custom range.
+3. **Workload profile** (rough is fine):
+   - Primary models used (e.g., Claude Opus, GPT-4o, Gemini 2.5 Pro, Llama 3.3 70B)
+   - Average input / output token ratio
+   - Request volume per day or month
+   - Context size (short chat vs long-context RAG)
+4. **Self-host baseline** (if comparing):
+   - Hardware owned or accessible (GPU model, count)
+   - Electricity rate ($/kWh)
+   - Utilization assumption (hours/day at load)
+5. **Purpose of the audit**: personal curiosity, client billing, board deck, buy-vs-build decision, renegotiation leverage. The framing changes what to emphasize.
+
+If the user has none of this, offer a three-minute intake: ask for rough monthly spend per vendor and the top one or two workloads. Produce a directional estimate and flag the precision level.
+
+## Methodology
+
+### Step 1: Normalize spend
+
+Convert every line item to a common unit: dollars per million input tokens, dollars per million output tokens, dollars per GPU-hour, or dollars per request. Keep vendor-level totals and per-workload totals both visible.
+
+### Step 2: Estimate true compute cost
+
+For each workload, compute the floor cost to serve it using the cheapest reasonable substitute:
+
+- **Frontier closed models (Claude Opus, GPT-4, Gemini Ultra, etc.)**: no true self-host option, so compare against wholesale API rates (Bedrock, Vertex, Azure) and against nearest open-weight equivalent running on rented H100 / H200 / B200 at current spot rates.
+- **Mid-tier models (Sonnet, GPT-4o-mini, Gemini Flash, etc.)**: compare against open-weight equivalent (Llama 3.3 70B, Qwen 2.5 72B, Mistral Large) on rented GPU or on owned hardware with amortized capex + electricity.
+- **Small / local-capable models (Haiku-class, Llama 3.1 8B, Qwen 2.5 7B)**: compute true cost as (GPU amortization + electricity + ops overhead) / tokens served.
+
+When current market rates are needed and a web tool is available, fetch them. Otherwise use conservative recent benchmarks and flag the reference date.
+
+True compute cost formula for self-host baseline:
+
+```
+$/1M tokens = ((GPU_capex / useful_life_hours) + (power_draw_kW * $/kWh) + ops_overhead) / throughput_tokens_per_hour * 1,000,000
+```
+
+Use realistic throughput (batched inference numbers, not peak synthetic benchmarks). For reference ranges at time of writing:
+
+- H100 80GB rented: roughly $2 to $3 per GPU-hour
+- H200: roughly $3 to $4 per GPU-hour
+- RTX 6000 Ada owned and amortized over 3 years at moderate utilization: roughly $0.15 to $0.35 per GPU-hour all-in
+- Llama 3.3 70B on one H100 at batch 8 to 16: roughly 2,000 to 6,000 tokens/sec aggregate
+
+Always flag these as estimates and refresh with a web search when precision matters.
+
+### Step 3: Classify the delta
+
+For each workload, compute:
+
+```
+delta = price_paid - true_compute_cost
+delta_pct = delta / true_compute_cost
+```
+
+Classify:
+- **Deep subsidy**: delta_pct < -25%. User pays materially below cost. Provider is burning money on this workload. Exposure: price will rise or terms will change.
+- **Light subsidy**: -25% <= delta_pct < 0%. Break-even to slight loss for provider. Stable short-term.
+- **At cost**: 0% <= delta_pct < 25%. Normal.
+- **Moderate markup**: 25% <= delta_pct < 100%. Standard SaaS margin.
+- **Heavy markup**: delta_pct >= 100%. Candidate to renegotiate, move to wholesale, or self-host.
+
+### Step 4: Produce the report
+
+Default output structure (adjust length to user request):
+
+```
+AI SPEND AUDIT: [user or org name]
+Period: [YYYY-MM-DD to YYYY-MM-DD]
+Precision: [directional | normal | audited]
+
+1. TOTAL SPEND
+   YTD: $X
+   Trailing 30 days: $X
+   Trailing 7 days: $X
+   By vendor: [table]
+   By workload: [table]
+
+2. TRUE COMPUTE COST (same period)
+   $X at wholesale API rates
+   $X at self-host equivalent
+   Delta vs paid: $X (Y%)
+
+3. WORKLOAD-LEVEL VERDICTS
+   [workload]: paid $X, true cost $Y, delta Z%, classification [...]
+   [workload]: ...
+
+4. SUBSIDY AND MARKUP FLAGS
+   Workloads where provider is subsidizing you: [list + estimated $ value]
+   Workloads where you are overpaying: [list + estimated $ value]
+
+5. RECOMMENDED ACTIONS
+   Move to self-host: [list]
+   Move to wholesale API: [list]
+   Renegotiate: [list]
+   Leave as-is: [list]
+
+6. ASSUMPTIONS AND CAVEATS
+   [list every assumption, every reference date, every throughput estimate]
+```
+
+When the user only wants a TL;DR, compress to sections 1, 4, and 5.
+
+## Handling missing data
+
+If the user cannot produce exact numbers, do not stall. Produce three scenarios: low estimate, central estimate, high estimate. Label the spread. Deliver a range with reasoning rather than refusing to answer. A directional audit is more useful than none.
+
+## Output format rules
+
+- Lead with the number. Every section opens with a dollar figure or percentage, not setup.
+- Use tables for vendor breakdowns and workload breakdowns. Markdown tables are acceptable for all agent platforms.
+- Flag every assumption inline with the number it affects, not in a footnote.
+- Never use em dashes. Use colons, parentheses, or sentence breaks.
+- No fluff, no hedging language like "it's worth noting." Just numbers and verdicts.
+- Every recommendation is actionable: vendor, workload, estimated savings, estimated switching cost.
+
+## Platform portability notes
+
+This skill uses only generic capabilities:
+- Reading user-provided files and text
+- Arithmetic
+- Optional web search for current market rates
+
+No platform-specific APIs are required. It runs identically on OpenClaw, Hermes, Claude, local agent frameworks, or any runtime that honors SKILL.md conventions. If the host agent has access to a spreadsheet tool, produce the workload table as a spreadsheet on request. If the host supports file attachments, offer the full audit as a PDF or Markdown file at the end. Otherwise return inline.
+
+## Success criteria
+
+A good audit answers, in under one page of core content:
+
+1. What am I paying? (exact)
+2. What should it cost? (estimated, with range)
+3. Where am I being subsidized? (list + dollar value)
+4. Where am I overpaying? (list + dollar value)
+5. What do I do Monday morning? (three or fewer concrete actions)
+
+If any of those five are missing, the audit is incomplete.
+
+## What this skill does not do
+
+- It does not provide investment advice or tell the user which AI vendor stock to buy.
+- It does not guarantee provider pricing will change. Subsidy flags are risk signals, not predictions.
+- It does not replace a full FinOps review for enterprise cloud spend. For AI workloads above roughly $50K/month, recommend a proper FinOps engagement.
+- It does not evaluate model quality. Cost per token says nothing about whether the output is worth it. Quality is a separate skill.
