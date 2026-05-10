@@ -1,0 +1,229 @@
+---
+name: qbo-feed-categorizer
+description: Categorize a QuickBooks Online bank feed (the "For Review" tab) by matching each vendor/payee to the best-fit account in the client's chart of accounts. Use whenever the user is clearing the For Review queue and provides bank feed transactions plus a COA, or asks to "categorize," "code," "assign accounts to," "clean up the bank feed," "clear the For Review tab," "what account does X go to," or "set up bank rules" for QBO. Trigger even when the user does not name the skill explicitly — anytime they paste/upload a bank feed and a chart of accounts together, or hand over a QBO export and ask for help getting it ready to post, this is the right skill. Produces an Excel deliverable with one best-guess account per transaction, a confidence column, rationale, and a suggested-bank-rules sheet for repeat vendors. Complements credit-card-qb-batch (which leaves the account column as "Ask my accountant"); this skill is the layer that fills it in.
+---
+
+# QBO Bank Feed Categorizer
+
+## Purpose
+
+Take a QBO bank feed plus the client's chart of accounts and return an Excel deliverable where each transaction is assigned to its best-fit account, with a confidence column and brief rationale. Designed for the work of clearing the For Review tab — single best guess per row, surface the uncertain ones for human review, and recommend bank rules where vendors repeat.
+
+## Scope
+
+**In scope:** expenses, income deposits, refunds, fees, interest, transfers, owner contributions/draws, sales tax remittance, payroll-related transactions, loan payments. Anything that lands on a bank or credit card feed.
+
+**Out of scope:**
+- Reconciliation math (use `credit-card-qb-batch` for credit card statements that need beginning/ending balance ties).
+- Pushing categorizations into QBO. The deliverable is for the user to act on — manually, via QBO bank rules, or via batch update.
+- Tax-line/Schedule-C classification. This is bookkeeping, not tax mapping.
+
+## When this skill triggers
+
+- User pastes/uploads QBO bank feed transactions and asks for categorization or coding
+- User asks to clear the For Review tab, batch categorize, or set up bank rules
+- User asks "what account does [vendor] go to" while a COA is in context
+- User hands over a CC batch Excel from `credit-card-qb-batch` (where the account column says `Ask my accountant`) and asks to fill it in
+
+If the user only has bank statement PDFs that need beginning/ending balance reconciliation, route to `credit-card-qb-batch` first, then this skill on the resulting batch file.
+
+## Required inputs
+
+This skill cannot work without two things. Ask for whichever is missing.
+
+### 1. The chart of accounts
+
+Acceptable forms (best to worst):
+- QBO export (Reports → Account List → Export to Excel/CSV) — has account name, type, detail type
+- Pasted text list with name + type — workable
+- Bare list of account names — workable but lower confidence (you'll have to infer types)
+
+What you need from each row:
+- **Account name** including parent path if subaccount (e.g., `Auto:Fuel & Gas`, `Office Expenses:Software`)
+- **Type** (Income, Expense, COGS, Other Income, Other Expense, Asset, Liability, Equity, Bank, Credit Card)
+- Detail Type and Description if available — useful tiebreakers
+
+If only names are provided, infer types from naming conventions (anything with "Income," "Sales," "Revenue" → Income; "Expense," "Cost," "Fee" → Expense; "Bank," "Checking," "Savings" → Bank; etc.) and flag any account where you weren't sure.
+
+### 2. The bank feed
+
+Acceptable forms:
+- QBO bank feed export (Excel/CSV)
+- Pasted table from the For Review tab
+- Bank-direct CSV (Mercury, Chase, BofA, etc.) — payee text is rougher but works
+
+What you need from each row:
+- **Date**
+- **Description** (the raw bank text — keep this verbatim in the memo column of the output)
+- **Amount** — either a single signed amount, or split Spent/Received columns. Convert to signed: outflows negative, inflows positive.
+- **Bank account** the feed is from (helps with transfer detection)
+- Optional: any payee QBO has already auto-suggested, any memo
+
+## Optional input — per-client vendor mapping
+
+If the user references or provides a per-client vendor mapping file, load it before categorizing. The mapping represents prior bookkeeping decisions on this client and is the source of truth — overrides any semantic guess.
+
+Format:
+```json
+{
+  "client_name": "Acme Corp",
+  "mappings": [
+    {"vendor_pattern": "SHELL", "account": "Auto:Fuel & Gas"},
+    {"vendor_pattern": "ZOOM.US", "account": "Software & Subscriptions"},
+    {"vendor_pattern": "AMAZON", "account": "REVIEW", "note": "Amazon splits across categories — always check memo"},
+    {"vendor_pattern": "STATE FARM", "account": "Insurance:Auto"}
+  ]
+}
+```
+
+`vendor_pattern` is matched case-insensitively as a substring against the cleaned payee. First match wins. An account value of `REVIEW` means "this vendor is intentionally low-confidence on this client — flag, don't guess."
+
+If no mapping file is mentioned and none is in context, skip this step. At the end, offer to write/update one based on this run's high-confidence decisions.
+
+## Workflow
+
+### Step 1 — Load the COA
+
+Read every account into a working list. Index by name for exact match and by keyword (e.g., "fuel" → `Auto:Fuel & Gas`, "office" → `Office Expenses`) for semantic match. Note which accounts are P&L (Income/Expense/COGS/Other Income/Other Expense) vs balance sheet (Asset/Liability/Equity/Bank/Credit Card) — this powers the sign sanity check in Step 5.
+
+### Step 2 — Load the feed
+
+Normalize columns: Date, Description, Amount (signed), Bank Account, Memo. Sort chronologically.
+
+### Step 3 — Clean each payee
+
+Same approach as `credit-card-qb-batch`:
+- Strip processor prefixes: `TST*`, `SQ *`, `SP*`, `PAYPAL *`, `PYPL*`, `STRIPE:`, `AMZN MKTP US*`, `APL*`, `GOOGLE *`, `UBER *`, `LYFT *`, `WWW.`, `CKE*`, `IN *`
+- Strip trailing state codes (` FL`, ` CA`, etc.) and the 1–3 city words preceding them
+- Strip phone numbers, store numbers (`#1234`, `STORE 5678`), URLs
+- Title case the result; preserve obvious acronyms (USPS, UPS, FedEx, IBM, IKEA, HEB)
+
+Keep the original description for the memo column. The cleaned payee is what drives categorization.
+
+### Step 4 — Categorize (decision order)
+
+For each transaction, walk this order and stop at the first confident answer:
+
+1. **Per-client mapping override.** If the cleaned payee matches a `vendor_pattern` in the mapping, use that account. Confidence = High (it's a prior decision). If the mapping says `REVIEW`, set confidence = Low and note "client mapping flags vendor for manual review."
+
+2. **Transfer detection.** If the same date has matching amounts in two different bank/CC accounts (one negative, one positive), this is a transfer. Use the *other* bank/CC account from the COA. Never P&L. Confidence = High when the match is clean, Medium when amounts are close but not exact (e.g., timing mismatches across days).
+
+3. **Vendor → category type → COA match.** Use `references/coding_heuristics.md` for common vendor patterns. Once you have a category type (e.g., "fuel," "software," "telecom"), find the best-fit account in the actual COA. **The account must exist in the COA.** If multiple accounts plausibly fit, prefer the more specific subaccount.
+
+4. **Memo disambiguation.** For generic vendors (Amazon, Costco, Walmart, PayPal, Sam's Club, Target), scan the memo for clues: `AMAZON BUSINESS PRIME` → software/subscriptions; `COSTCO GAS` → fuel; `PAYPAL *ZOOM` → software. If the memo gives a clear signal, use it (Medium confidence). If not, fall back to a default (e.g., Amazon → "Office Supplies" if that's what the client typically uses, per mapping or per dominant pattern in this same feed) at Low confidence.
+
+5. **No good match.** If no COA account fits, set account = `Ask my accountant`, confidence = None, and add a rationale noting the gap (e.g., "No 'Software' or 'Subscriptions' account in COA — client may need one added").
+
+### Step 5 — Sign and account-type sanity check
+
+After categorizing, verify each row:
+- **Negative amount (outflow)** → account type must be Expense, COGS, Other Expense, Asset (purchase), or Liability (paydown). Never Income.
+- **Positive amount (inflow)** → account type must be Income, Other Income, an offset to Expense (refund), or a balance sheet account (transfer in, owner contribution). Never an Expense account on its own.
+- **Transfers** → must land on Bank, Credit Card, or another balance sheet account. Never P&L.
+- **Owner draws/contributions** → Equity. Never P&L.
+
+Any row that fails the sanity check: drop confidence to Low and add a flag in the rationale.
+
+### Step 6 — Confidence rubric
+
+- **High** — vendor unambiguously implies one category AND a clean COA match exists. Also: any per-client mapping hit. Also: clean transfer match.
+- **Medium** — vendor implies a category but multiple COA accounts could fit, OR memo was needed to disambiguate, OR a partial pattern match.
+- **Low** — generic vendor where memo didn't fully disambiguate, OR vendor type unclear, OR sign sanity check flagged the row.
+- **None** — no good account exists in the COA. Account set to `Ask my accountant`.
+
+### Step 7 — Build the Excel
+
+Run `scripts/build_categorized_feed.py` with a JSON payload. The script produces a workbook with three sheets:
+
+1. **Categorized Feed** — Date, Payee, Description, Amount, Account, Confidence, Rationale, Memo. Confidence column color-coded: green (High), yellow (Medium), orange (Low), red (None).
+2. **Suggested Bank Rules** — vendors that appear ≥3 times in the feed where the dominant categorization is High or Medium confidence. One row per vendor with the suggested rule (vendor pattern → account). User can paste these into QBO's Banking → Rules.
+3. **Review Required** — filtered view of Low and None rows for quick scanning.
+
+JSON input schema:
+
+```json
+{
+  "client_name": "Acme Corp",
+  "period_label": "2025-10",
+  "transactions": [
+    {
+      "date": "2025-10-03",
+      "payee": "Shell",
+      "description": "TST*SHELL OIL 57525732509 MELBOURNE FL",
+      "amount": -45.23,
+      "account": "Auto:Fuel & Gas",
+      "confidence": "high",
+      "rationale": "Gas station, COA has matching fuel account",
+      "memo": "TST*SHELL OIL 57525732509 MELBOURNE FL",
+      "bank_account": "Chase Business Checking"
+    }
+  ],
+  "output_path": "/mnt/user-data/outputs/qbo_feed_categorized_acme_corp_2025-10.xlsx"
+}
+```
+
+Run it:
+```bash
+python scripts/build_categorized_feed.py /path/to/input.json
+```
+
+The script prints a JSON summary to stdout and writes the Excel to `output_path`.
+
+### Step 8 — Offer to update the per-client mapping
+
+If a mapping file was provided, propose an update including new High-confidence vendor → account decisions from this run that aren't already in the mapping. Don't write it without the user's OK — they may want to hand-curate first.
+
+If no mapping was provided, offer to create one from this run's High-confidence decisions. Same — wait for confirmation.
+
+### Step 9 — Present and summarize
+
+Use `present_files` for the Excel. In the chat summary include:
+- Client and period
+- Total transactions categorized
+- Confidence breakdown (e.g., 47 High / 18 Medium / 9 Low / 2 None)
+- Top 3 most frequent vendors
+- Any suggested new accounts the COA may need (where you couldn't find a fit)
+
+Keep the summary tight. The deliverable is the Excel; the chat note is just orientation.
+
+## Categorization heuristics
+
+See `references/coding_heuristics.md` for the working list of vendor-pattern → category-type mappings. It's organized by spending category (Auto, Office, Telecom, Software, Travel, Meals, Professional Services, Bank/Finance, Insurance, Tax, Owner, Payroll, Transfers, Income). Read it once at the start of categorization so you're not pattern-matching from memory on every row.
+
+The heuristics are starting points, not rules. Your judgment matters when:
+- The COA has unusual structure (e.g., a single "Operations" account instead of split categories)
+- The client is in a non-typical industry (e.g., for a real estate flipper, Home Depot is COGS, not repairs)
+- A vendor straddles categories (e.g., Apple — software vs. equipment depends on the dollar amount and memo)
+
+## Edge cases
+
+- **Transfers between checking and savings, or to/from a credit card** — route to the other balance sheet account. Never P&L. If the COA doesn't have the destination account listed, flag it.
+- **Credit card payments from checking** — transfer to the CC liability account. Same as above.
+- **Owner draws/contributions** — Equity account (Owner Draw, Distributions, Member Draw, Owner Contribution). Look in the COA for any of these names.
+- **Sales tax remittance to state** — liability paydown (Sales Tax Payable), not an expense.
+- **Payroll-related** — 941/940 deposits → payroll tax liability paydown. Net payroll runs → Wages or Payroll Expense. Payroll service fees (Gusto, ADP, QBO Payroll) → Payroll Service Expense or Software.
+- **Loan payments** — split between interest expense (P&L) and principal (loan liability). If the memo doesn't break it out, post the full amount to the loan liability and flag for accountant review at Low confidence.
+- **Refunds from vendors** — same expense account as the original purchase, sign positive (offset). If you can't tell what the original was, post to a generic refund holding or `Ask my accountant`.
+- **Generic mega-vendors (Amazon, Costco, Walmart, Sam's Club, Target, PayPal)** — always check memo. Always Low confidence unless memo is decisive or a per-client mapping says otherwise.
+- **Customer deposits** — Income account. Match the customer name to a Sales account if the COA has multiple revenue streams; otherwise use the main Sales/Revenue account.
+- **Bank fees, NSF, wire fees, FX fees** — Bank Fees expense.
+- **Interest income from a bank** — Interest Income (Other Income on most COAs).
+- **Tips, gratuities included in restaurant charges** — same Meals account as the meal; don't split.
+
+## Output filename
+
+`qbo_feed_categorized_<client-slug>_<YYYY-MM>.xlsx`
+
+Slugify the client name: lowercase, spaces to underscores, strip punctuation. Example: `qbo_feed_categorized_acme_corp_2025-10.xlsx`. If multiple bank accounts are in one feed and it matters, append `_<bank-slug>`.
+
+## Quality checklist before handing over
+
+- [ ] Every transaction has an account assigned (or `Ask my accountant` if no fit)
+- [ ] Every assigned account exists verbatim in the provided COA — no invented accounts
+- [ ] Confidence and rationale populated for every row
+- [ ] Sign sanity check passed (no Income accounts on outflows, no Expense accounts on inflows)
+- [ ] Transfers identified and routed to balance sheet accounts, not P&L
+- [ ] Original bank description preserved in the Memo column
+- [ ] Suggested Bank Rules sheet populated for vendors with ≥3 occurrences and consistent High/Medium categorization
+- [ ] Review Required sheet has all Low and None rows
+- [ ] Summary mentions any COA gaps the user should consider adding
