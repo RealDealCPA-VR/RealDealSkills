@@ -1,0 +1,94 @@
+{
+  "project": "space-janitor",
+  "logline": "A space-station janitor finds a glowing key and pockets it.",
+  "style": "cinematic photoreal, 35mm anamorphic, teal-orange grade, soft volumetric light",
+  "aspect_ratio": "16:9",
+  "models": {
+    "anchor": "pixio/flux-pro/v1.1-ultra",
+    "keyframe": "pixio/nano-banana-2/edit",
+    "animate": "pixio/wan/v2.7/image-to-video",
+    "tts": "pixio/elevenlabs/tts/v1",
+    "music": "pixio/elevenlabs/music/v1",
+    "sfx": "pixio/elevenlabs/sound-effects/v1"
+  },
+  "bible": {
+    "style": "cinematic photoreal, 35mm anamorphic, teal-orange grade, soft volumetric light",
+    "characters": [
+      {
+        "id": "marlow",
+        "name": "Marlow",
+        "age": 42,
+        "build": "lean, slightly hunched",
+        "face": "tired hazel eyes, two-week stubble, faint scar across left brow",
+        "hair": "short salt-and-pepper",
+        "wardrobe": "stained gray jumpsuit, name patch reads MARLOW, scuffed work boots",
+        "props": ["a mop", "a battered keyring on his belt"],
+        "anchor_pose": "neutral half-body portrait, soft three-quarter lighting, looking slightly off-camera",
+        "anchor_setting": "industrial corridor with flickering fluorescent light",
+        "voice_id": null
+      }
+    ]
+  },
+  "shots": [
+    {
+      "id": 1,
+      "scene": "corridor",
+      "characters": ["marlow"],
+      "duration_s": 5,
+      "shot_type": "wide",
+      "camera": "slow dolly forward",
+      "action": "Marlow pushes a mop bucket down a flickering corridor.",
+      "dialogue": null,
+      "sfx": ["distant alarm", "wet mop on metal floor"],
+      "previous_shot_continuity": null
+    },
+    {
+      "id": 2,
+      "scene": "corridor",
+      "characters": ["marlow"],
+      "duration_s": 3,
+      "shot_type": "close",
+      "camera": "static",
+      "action": "Marlow stops, frowns at something on the floor just out of frame.",
+      "dialogue": null,
+      "sfx": ["mop drops"],
+      "previous_shot_continuity": 1
+    },
+    {
+      "id": 3,
+      "scene": "corridor floor",
+      "characters": [],
+      "duration_s": 3,
+      "shot_type": "top-down",
+      "camera": "static",
+      "action": "A small key glows faint blue in a puddle of mop water.",
+      "dialogue": null,
+      "sfx": ["soft hum"],
+      "previous_shot_continuity": null
+    },
+    {
+      "id": 4,
+      "scene": "corridor",
+      "characters": ["marlow"],
+      "duration_s": 4,
+      "shot_type": "over-shoulder",
+      "camera": "tilt down",
+      "action": "Marlow kneels, glove hovers above the glowing key.",
+      "dialogue": null,
+      "sfx": ["fabric creak"],
+      "previous_shot_continuity": null
+    },
+    {
+      "id": 5,
+      "scene": "corridor",
+      "characters": ["marlow"],
+      "duration_s": 5,
+      "shot_type": "medium",
+      "camera": "static",
+      "action": "Marlow pockets the key, stands, scans the corridor both ways, picks up the mop and keeps walking.",
+      "dialogue": null,
+      "sfx": ["pocket rustle", "footsteps resume"],
+      "previous_shot_continuity": null
+    }
+  ]
+}
