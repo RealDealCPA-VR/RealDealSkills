@@ -1,18 +1,26 @@
-# Business Branding Skill
+# 🎨 Business Branding Skill
 
-Agent Skill that turns a business owner's intent into a coherent set of brand and marketing assets. Wraps the `pixio-skill` with a structured intake, a reusable brand system, and deliverable-specific guides.
+**Turn a business idea into a full brand kit in one conversation.**
+
+An Agent Skill that takes a business owner from *"I have a vibe in my head"* to a coherent set of logos, social posts, and ad creatives — without the agency invoice. Wraps `pixio-skill` with a structured intake, a reusable brand system, and deliverable-specific playbooks so every asset looks like it came from the same studio.
+
+---
+
+## ✨ What It Does
 
 This skill teaches compatible agents how to:
 
-- run a hybrid intake (structured questions for vibe, style, color scheme, logo type; free-form for audience, competitors, inspirations);
-- translate intake answers into a reusable prompt prefix that keeps every generated asset visually consistent;
-- generate 3 logo concepts matched to the chosen logo type (wordmark / lettermark / icon / combination);
-- generate social media posts in feed (1:1) and story (9:16) formats across 3 themes;
-- generate ad creatives (hero banner, square display, optional IAB sizes);
-- generate short video ads on request only, with a credit-confirmation gate;
-- delegate all Pixio API mechanics (model discovery, params, uploads, polling, errors) to `pixio-skill` instead of duplicating that work.
+- 🎯 **Run a hybrid intake** — structured picks for vibe, style, color scheme, and logo type, plus free-form on audience, competitors, and inspirations.
+- 🧬 **Lock in a brand DNA** — translate intake answers into a reusable prompt prefix so every asset stays visually consistent.
+- 🅰️ **Generate logos** — 3 concepts matched to the chosen type (wordmark / lettermark / icon / combination).
+- 📱 **Spin up social content** — feed (1:1) and story (9:16) posts across 3 themes.
+- 📢 **Produce ad creatives** — hero banner, square display, and optional IAB sizes.
+- 🎬 **Drop video ads on demand** — short promos, opt-in only, with a credit check before the meter runs.
+- 🔌 **Delegate the heavy lifting** — model discovery, params, uploads, polling, and errors all go through `pixio-skill`.
 
-## Install
+---
+
+## 🚀 Install
 
 From a local checkout:
 
@@ -26,57 +34,69 @@ Install globally:
 npx skills add -g ./scripts/business-branding
 ```
 
-If this skill is moved to its own repository, install it from the repo:
+If this skill lives in its own repo:
 
 ```bash
 npx skills add <owner>/<repo>
 ```
 
-## Requires
+---
 
-- `pixio-skill` must also be installed — this skill delegates all image and video generation to it.
-- A Pixio API key (the agent will ask if not provided).
+## 📦 Requires
 
-## Usage
+- **`pixio-skill`** — this skill delegates every image and video generation to it. Install it first.
+- **A Pixio API key** — the agent will prompt for one if it's not already configured.
 
-After installing, ask an agent something like:
+---
+
+## 💬 Usage
+
+Once installed, just talk to your agent like a creative director:
 
 ```text
-Build a brand for my new sourdough bakery — I want a logo, a color palette, and a few social posts.
+Build a brand for my new sourdough bakery — logo, color palette, and a few social posts.
 ```
 
-or:
+Or:
 
 ```text
 Design ad creatives for my B2B SaaS launch. Modern, blue palette, combination logo.
 ```
 
-The agent should load `business-branding`, run intake, get sign-off on the brand system, then invoke `pixio-skill` for each generation.
+The agent loads `business-branding`, walks the intake, gets your sign-off on the brand system, then fires off generations through `pixio-skill`.
 
-## Files
+---
 
-- `SKILL.md`: required Agent Skill entrypoint and workflow.
-- `references/index.md`: map of all reference docs.
-- `references/intake.md`: hybrid questionnaire (structured + free-form) and echo-back gate.
-- `references/brand-system.md`: translates intake answers into a reusable prompt prefix and human-readable summary.
-- `references/guides/logo.md`: logo concept generation (3 variants per logo type).
-- `references/guides/social-posts.md`: feed + story templates across 3 universal themes.
-- `references/guides/ad-creatives.md`: hero banner, square display, opt-in IAB sizes.
-- `references/guides/video-ads.md`: opt-in short video promos with credit-cost confirmation.
-- `references/examples/end-to-end.md`: full worked example from first message to first deliverable.
+## 📂 Files
 
-## Workflow At A Glance
+| File | Purpose |
+|---|---|
+| `SKILL.md` | Required Agent Skill entrypoint and workflow |
+| `references/index.md` | Map of all reference docs |
+| `references/intake.md` | Hybrid questionnaire + echo-back gate |
+| `references/brand-system.md` | Turns intake answers into a reusable prompt prefix |
+| `references/guides/logo.md` | 3 variants per logo type |
+| `references/guides/social-posts.md` | Feed + story templates, 3 universal themes |
+| `references/guides/ad-creatives.md` | Hero banner, square display, opt-in IAB sizes |
+| `references/guides/video-ads.md` | Opt-in short promos with credit-cost confirmation |
+| `references/examples/end-to-end.md` | Full worked example, first message to first deliverable |
 
-1. **Intake** — free-form business basics, then a single `AskUserQuestion` call for the 4 structured choices.
+---
+
+## 🗺️ Workflow At A Glance
+
+1. **Intake** — free-form basics, then one `AskUserQuestion` call for the 4 structured picks.
 2. **Brand system** — assemble the prompt prefix, echo a summary, get sign-off.
-3. **Logo first** — generate 3 concepts, let the user pick or iterate.
-4. **Social posts** — 6 generations (3 themes × feed + story), streamed as they complete.
+3. **Logo first** — 3 concepts, pick or iterate.
+4. **Social posts** — 6 generations (3 themes × feed + story), streamed live.
 5. **Ad creatives** — hero banner + square display by default.
-6. **Video** — only if explicitly requested, with a credit estimate up front.
-7. **Hand off** — all output URLs grouped by deliverable, plus the brand system summary as a reusable spec.
+6. **Video** — only on request, with a credit estimate up front.
+7. **Hand off** — every output URL grouped by deliverable, plus the brand system summary as a reusable spec.
 
-## Safety
+---
 
-- Same Pixio API key handling as `pixio-skill` — never put keys in browser code, public repos, screenshots, or logs.
-- Flag potential trademark conflicts before generating identity assets if the business name resembles an existing brand.
-- Confirm scope before video generation — a single 10s video can cost 10–20x a still image.
+## 🛡️ Safety
+
+- 🔑 **API keys stay private.** Same handling as `pixio-skill` — never in browser code, public repos, screenshots, or logs.
+- ™️ **Trademark check first.** If the business name resembles an existing brand, the agent flags it before generating identity assets.
+- 💰 **No surprise spend.** Video generation requires explicit confirmation — a single 10-second clip can cost 10–20x a still image.
